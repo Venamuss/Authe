@@ -16,6 +16,12 @@ import (
 	"authe/internal/user"
 )
 
+type contextKey string
+
+const (
+	usernameContextKey contextKey = "username"
+)
+
 type Cache interface {
 	CheckBlacklistToken(ctx context.Context, token string) error
 	CheckTimeout(ctx context.Context, ip string) (int, error)
@@ -73,7 +79,7 @@ func (middleware *Middleware) Protect(next http.Handler) http.Handler {
 			return
 		}
 
-		ctx := context.WithValue(r.Context(), "username", username)
+		ctx := context.WithValue(r.Context(), usernameContextKey, username)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

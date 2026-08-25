@@ -9,19 +9,19 @@ import (
 // --- Входящие DTO (Requests) ---
 
 type CreateUserRequest struct {
-	Username string `json:"username"`
-	Email    string `json:"email"`
-	Password string `json:"password"`
+	Username string `json:"username" validate:"required,max=32"`
+	Email    string `json:"email" validate:"required,email"`
+	Password string `json:"password" validate:"required,min=8"`
 }
 
 type LoginRequest struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
+	Username string `json:"username" validate:"required"`
+	Password string `json:"password" validate:"required"`
 }
 
 type UpdateUserRequest struct {
 	Username *string `json:"username,omitempty"`
-	Email    *string `json:"email,omitempty"`
+	Email    *string `json:"email,omitempty" `
 	Password *string `json:"password,omitempty"`
 }
 
@@ -48,6 +48,20 @@ func (r *CreateUserRequest) ToDomain() *domain.User {
 		Email:    r.Email,
 		Password: r.Password,
 	}
+}
+
+func (r *UpdateUserRequest) ToDomain() *domain.User {
+	u := &domain.User{}
+	if r.Username != nil {
+		u.Username = *r.Username
+	}
+	if r.Email != nil {
+		u.Email = *r.Email
+	}
+	if r.Password != nil {
+		u.Password = *r.Password
+	}
+	return u
 }
 
 func ToUserResponse(u *domain.User) UserResponse {

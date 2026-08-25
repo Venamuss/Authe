@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/go-playground/validator/v10"
 	"github.com/jackc/pgx/v5"
 
 	"authe/internal/user"
@@ -23,11 +24,12 @@ type Service interface {
 	Logout(ctx context.Context, token string) error
 }
 type userHandler struct {
-	Service Service
+	Service  Service
+	validate *validator.Validate
 }
 
-func NewHandler(service Service) *userHandler {
-	return &userHandler{Service: service}
+func NewHandler(service Service, validate *validator.Validate) *userHandler {
+	return &userHandler{Service: service, validate: validate}
 }
 
 func (h *userHandler) Create(w http.ResponseWriter, r *http.Request) {
@@ -39,8 +41,8 @@ func (h *userHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Username == "" || req.Email == "" || req.Password == "" {
-		http.Error(w, "all fields are required", http.StatusBadRequest)
+	if err = h.validate.Struct(&req); err != nil {
+		http.Error(w, fmt.Sprintf("validation failed: %v", err), http.StatusBadRequest)
 		return
 	}
 
@@ -76,11 +78,19 @@ func (h *userHandler) Get(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *userHandler) Login(w http.ResponseWriter, r *http.Request) {
-	var u user.User
+	var req LoginRequest
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		http.Error(w, "failed to decode request body", http.StatusBadRequest)
+		return
+	}
 
-	json.NewDecoder(r.Body).Decode(&u)
+	if err = h.validate.Struct(&req); err != nil {
+		http.Error(w, fmt.Sprintf("validation failed: %v", err), http.StatusBadRequest)
+		return
+	}
 
-	token, err := h.Service.Login(r.Context(), u.Username, u.Password)
+	token, err := h.Service.Login(r.Context(), req.Username, req.Password)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			http.Error(w, fmt.Sprintf("user not found: %s", err), http.StatusNotFound)
@@ -114,7 +124,7 @@ func (h *userHandler) Logout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *userHandler) Welcome(w http.ResponseWriter, r *http.Request) {
-	username := r.Context().Value("username").(string)
+	username := r.Context().Value(usernameContextKey).(string)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -122,7 +132,38 @@ func (h *userHandler) Welcome(w http.ResponseWriter, r *http.Request) {
 
 }
 func (h *userHandler) Update(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
 
+	var req UpdateUserRequest
+	err = json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		http.Error(w, "failed to decode request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.Username == nil && req.Email == nil && req.Password == nil {
+		http.Error(w, "no fields to update", http.StatusBadRequest)
+		return
+	}
+
+	err = h.Service.Update(r.Context(), id, req.ToDomain())
+	if err != nil {
+		if errors.Is(err, user.UserNotFound) {
+			http.Error(w, "user not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed to update user", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"message": "user updated"})
 }
 
 func (h *userHandler) Delete(w http.ResponseWriter, r *http.Request) {

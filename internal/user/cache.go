@@ -17,7 +17,7 @@ type cache struct {
 	redis *redisCache.Redis
 }
 
-func NewCache(redis *redisCache.Redis, tokenManager TokenManager, rateLimitMax int) *cache {
+func NewCache(redis *redisCache.Redis) *cache {
 	return &cache{
 		redis: redis,
 	}

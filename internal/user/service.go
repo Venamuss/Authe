@@ -76,6 +76,14 @@ func (s *service) Get(ctx context.Context, id int) (*User, error) {
 }
 
 func (s *service) Update(ctx context.Context, id int, user *User) error {
+	if user.Password != "" {
+		passwordHash, err := security.HashPassword(user.Password)
+		if err != nil {
+			return fmt.Errorf("failed to hash password: %w", err)
+		}
+		user.PasswordHash = passwordHash
+	}
+
 	err := s.repo.Update(ctx, id, user)
 	if err != nil {
 		return err

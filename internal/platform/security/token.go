@@ -2,6 +2,7 @@ package security
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -23,7 +24,7 @@ func (tm *TokenManager) CreateToken(username string) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256,
 		jwt.MapClaims{
 			"username": username,
-			"exp":      tm.tokenTTL,
+			"exp":      time.Now().Add(tm.tokenTTL).Unix(),
 		})
 
 	tokenString, err := token.SignedString(tm.secretKey)
@@ -67,4 +68,8 @@ func (tm *TokenManager) ExtractClaimsWithMap(tokenString string) (jwt.MapClaims,
 	}
 
 	return nil, fmt.Errorf("invalid token claims")
+}
+
+func (tm *TokenManager) GetTrueToken(tokenString string) string {
+	return strings.TrimPrefix(tokenString, "Bearer ")
 }

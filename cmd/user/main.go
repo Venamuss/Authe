@@ -5,18 +5,26 @@ import (
 	"errors"
 	"log"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
+
+	"github.com/go-playground/validator/v10"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/reflection"
 
 	"authe/internal/config"
 	packCache "authe/internal/platform/cache"
 	"authe/internal/platform/database"
 	"authe/internal/platform/security"
 	user "authe/internal/user"
-	userHandler "authe/internal/user/handler"
+	grpcUserHandler "authe/internal/user/handler/grpc"
+	httpUserHandler "authe/internal/user/handler/http"
+	userV1 "authe/pkg/proto/user/v1"
 )
 
 func main() {
@@ -47,21 +55,48 @@ func main() {
 	tokenManager := security.NewTokenManager(cfg.Security.JWTSecret, cfg.Security.TokenTTL)
 
 	repository := user.NewRepository(db)
-	cache := user.NewCache(redisCache, tokenManager, cfg.Security.RateLimit)
+	cache := user.NewCache(redisCache)
 	service := user.NewService(repository, cache, tokenManager)
-	handler := userHandler.NewHandler(service)
+
+	validate := validator.New()
+	handler := httpUserHandler.NewHandler(service, validate)
 
 	mux := http.NewServeMux()
-	middleware := userHandler.NewMiddleware(cache, tokenManager, cfg.Security.RateLimit)
+	middleware := httpUserHandler.NewMiddleware(cache, tokenManager, cfg.Security.RateLimit)
 	handler.Route(mux, middleware)
 
+	addr := cfg.HTTP.Port
+	if !strings.HasPrefix(addr, ":") {
+		addr = ":" + addr
+	}
+
 	httpServer := &http.Server{
-		Addr:         ":8080",
+		Addr:         addr,
 		Handler:      mux,
 		ReadTimeout:  cfg.HTTP.ReadTimeout,
 		WriteTimeout: cfg.HTTP.WriteTimeout,
 		IdleTimeout:  cfg.HTTP.IdleTimeout,
 	}
+
+	grpcPort := cfg.GRPC.Port
+	if !strings.HasPrefix(grpcPort, ":") {
+		grpcPort = ":" + grpcPort
+	}
+	listener, err := net.Listen("tcp", grpcPort)
+	if err != nil {
+		slog.Error("failed to listen", "err", err)
+	}
+
+	grpcServer := grpc.NewServer()
+	userV1.RegisterUserServiceServer(grpcServer, grpcUserHandler.NewServer(service, tokenManager))
+
+	reflection.Register(grpcServer)
+
+	go func() {
+		if err := grpcServer.Serve(listener); err != nil {
+			slog.Error("failed to serve", "err", err)
+		}
+	}()
 
 	go func() {
 		slog.Info("HTTP Server started")
@@ -85,6 +120,7 @@ func main() {
 	db.Close()
 	slog.Info("Shutting down Redis server.")
 	redisCache.Close()
+	grpcServer.GracefulStop()
 
 	log.Println("Graceful shutdown complete.")
 }

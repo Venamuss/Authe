@@ -12,6 +12,7 @@ import (
 type Config struct {
 	Env      string      `env:"ENV" env-default:"development"`
 	HTTP     HTTPConfig  `env-prefix:"HTTP_"`
+	GRPC     GRPCConfig  `env-prefix:"GRPC_"`
 	DB       DBConfig    `env-prefix:"DB_"`
 	Redis    RedisConfig `env-prefix:"REDIS_"`
 	Security SecurityConfig
@@ -35,6 +36,9 @@ type SecurityConfig struct {
 	JWTSecret string        `env:"JWT_SECRET" env-required:"true"`
 	TokenTTL  time.Duration `env:"TOKEN_TTL" env-default:"24h"`
 	RateLimit int           `env:"RATE_LIMIT" env-default:"5"`
+}
+type GRPCConfig struct {
+	Port string `env:"PORT" env-default:":50051"`
 }
 
 func MustLoad() *Config {
