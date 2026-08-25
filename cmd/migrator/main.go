@@ -3,30 +3,29 @@ package main
 import (
 	"context"
 	"log/slog"
-	"os"
 	"time"
 
 	"github.com/jackc/pgx/v5/stdlib"
-	"github.com/joho/godotenv"
 	"github.com/pressly/goose/v3"
 
+	"authe/internal/config"
 	"authe/internal/platform/database"
 	"authe/migrations"
 )
 
 func main() {
-	err := godotenv.Load()
-	if err != nil {
-		slog.Error("failed to load .env", "err", err)
-		return
-	}
-
-	dbUrl := os.Getenv("DB_URL")
+	cfg := config.MustLoad()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	pool, err := database.New(ctx, dbUrl)
+	pool, err := database.New(ctx, database.Config{
+		URL:          cfg.DB.URL,
+		MaxConns:     cfg.DB.MaxConns,
+		MaxIdleConns: cfg.DB.MaxIdleConns,
+		MaxConnIdle:  cfg.DB.MaxConnIdle,
+	})
+
 	if err != nil {
 		slog.Error("database failed", "err", err)
 		return

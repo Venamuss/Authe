@@ -17,5 +17,7 @@ type User struct {
 }
 
 var (
-	UserNotFound = errors.New("user not found")
+	UserNotFound     = errors.New("user not found")
+	TokenNotFound    = errors.New("token not found")
+	TokenBlacklisted = errors.New("token blacklisted")
 )

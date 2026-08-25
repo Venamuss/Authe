@@ -2,23 +2,46 @@ package user
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"runtime/debug"
+	"strings"
 	"time"
 
-	"authe/internal/platform/security"
+	"github.com/golang-jwt/jwt/v5"
+
+	"authe/internal/user"
 )
 
-func Chain(h http.Handler, mw ...func(next http.Handler) http.Handler) http.Handler {
-	for i := len(mw) - 1; i >= 0; i-- {
-		h = mw[i](h)
-	}
-	return h
+type Cache interface {
+	CheckBlacklistToken(ctx context.Context, token string) error
+	CheckTimeout(ctx context.Context, ip string) (int, error)
 }
 
-func Protect(next http.Handler) http.Handler {
+type TokenManager interface {
+	CreateToken(username string) (string, error)
+	VerifyToken(tokenString string) error
+	ExtractClaimsWithMap(tokenString string) (jwt.MapClaims, error)
+}
+
+type Middleware struct {
+	cache        Cache
+	tokenManager TokenManager
+	rateLimitMax int
+}
+
+func NewMiddleware(cache Cache, tokenManager TokenManager, rateLimitMax int) *Middleware {
+	return &Middleware{
+		cache:        cache,
+		tokenManager: tokenManager,
+		rateLimitMax: rateLimitMax,
+	}
+}
+
+func (middleware *Middleware) Protect(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := r.Header.Get("Authorization")
 		if token == "" {
@@ -26,28 +49,35 @@ func Protect(next http.Handler) http.Handler {
 			fmt.Fprint(w, "no token provided")
 			return
 		}
+		token = strings.TrimPrefix(token, "Bearer ")
 
-		token = token[len("Bearer: "):]
-		err := security.VerifyToken(token)
-		if err != nil {
+		if err := middleware.cache.CheckBlacklistToken(r.Context(), token); errors.Is(err, user.TokenBlacklisted) {
 			w.WriteHeader(http.StatusUnauthorized)
-			fmt.Fprintf(w, "invalid token: %s", err)
+			fmt.Fprint(w, "token is blacklisted")
+			return
+		} else if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			fmt.Fprint(w, "failed to check token: ", err)
 			return
 		}
 
-		claims, err := security.ExtractClaimsWithMap(token)
+		claims, err := middleware.tokenManager.ExtractClaimsWithMap(token)
 		if err != nil {
 			w.WriteHeader(http.StatusUnauthorized)
 			fmt.Fprint(w, "invalid token")
 			return
 		}
-		username := claims["username"].(string)
+		username, ok := claims["username"].(string)
+		if !ok {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
 
 		ctx := context.WithValue(r.Context(), "username", username)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
-func Logger(next http.Handler) http.Handler {
+func (middleware *Middleware) Logger(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		next.ServeHTTP(w, r)
@@ -58,7 +88,7 @@ func Logger(next http.Handler) http.Handler {
 	})
 }
 
-func Recover(next http.Handler) http.Handler {
+func (middleware *Middleware) Recover(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if err := recover(); err != nil {
@@ -73,4 +103,37 @@ func Recover(next http.Handler) http.Handler {
 		}()
 		next.ServeHTTP(w, r)
 	})
+}
+
+func (middleware *Middleware) RateLimit(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ip := getClientIP(r)
+		n, err := middleware.cache.CheckTimeout(r.Context(), ip)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			fmt.Fprint(w, "failed to check timeout: ", err)
+			return
+		}
+		if n > middleware.rateLimitMax {
+			w.WriteHeader(http.StatusTooManyRequests)
+			fmt.Fprint(w, "too many requests")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func getClientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		ips := strings.Split(xff, ",")
+		return strings.TrimSpace(ips[0])
+	}
+	if xRealIP := r.Header.Get("X-Real-IP"); xRealIP != "" {
+		return xRealIP
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }

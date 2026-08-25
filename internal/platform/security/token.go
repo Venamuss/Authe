@@ -2,20 +2,31 @@ package security
 
 import (
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 )
 
-func CreateToken(username string) (string, error) {
+type TokenManager struct {
+	secretKey []byte
+	tokenTTL  time.Duration
+}
+
+func NewTokenManager(secretKey string, tokenTTL time.Duration) *TokenManager {
+	return &TokenManager{
+		secretKey: []byte(secretKey),
+		tokenTTL:  tokenTTL,
+	}
+}
+
+func (tm *TokenManager) CreateToken(username string) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256,
 		jwt.MapClaims{
 			"username": username,
-			"exp":      time.Now().Add(time.Hour * 24).Unix(),
+			"exp":      tm.tokenTTL,
 		})
 
-	tokenString, err := token.SignedString([]byte(os.Getenv("JWT_SECRET")))
+	tokenString, err := token.SignedString(tm.secretKey)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate token: %w", err)
 	}
@@ -23,9 +34,9 @@ func CreateToken(username string) (string, error) {
 	return tokenString, nil
 }
 
-func VerifyToken(tokenString string) error {
+func (tm *TokenManager) VerifyToken(tokenString string) error {
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		return []byte(os.Getenv("JWT_SECRET")), nil
+		return tm.secretKey, nil
 	})
 
 	if err != nil {
@@ -39,13 +50,12 @@ func VerifyToken(tokenString string) error {
 	return nil
 }
 
-func ExtractClaimsWithMap(tokenString string) (jwt.MapClaims, error) {
-	secretKey := []byte(os.Getenv("JWT_SECRET"))
+func (tm *TokenManager) ExtractClaimsWithMap(tokenString string) (jwt.MapClaims, error) {
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
-		return secretKey, nil
+		return tm.secretKey, nil
 	})
 
 	if err != nil {

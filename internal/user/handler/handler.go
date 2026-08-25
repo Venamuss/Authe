@@ -20,6 +20,7 @@ type Service interface {
 	Delete(context.Context, int) error
 	IsExistByUsername(context.Context, string) error
 	Login(context.Context, string, string) (string, error)
+	Logout(ctx context.Context, token string) error
 }
 type userHandler struct {
 	Service Service
@@ -30,35 +31,27 @@ func NewHandler(service Service) *userHandler {
 }
 
 func (h *userHandler) Create(w http.ResponseWriter, r *http.Request) {
-	user := &user.User{}
+	var req CreateUserRequest
 
-	err := json.NewDecoder(r.Body).Decode(&user)
+	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
 		http.Error(w, "failed to decode user", http.StatusBadRequest)
 		return
 	}
 
-	if user.Username == "" {
-		http.Error(w, "username is required", http.StatusBadRequest)
-		return
-	}
-	if user.Email == "" {
-		http.Error(w, "email is required", http.StatusBadRequest)
-		return
-	}
-	if user.Password == "" {
-		http.Error(w, "password is required", http.StatusBadRequest)
+	if req.Username == "" || req.Email == "" || req.Password == "" {
+		http.Error(w, "all fields are required", http.StatusBadRequest)
 		return
 	}
 
-	id, err := h.Service.Create(r.Context(), user)
+	id, err := h.Service.Create(r.Context(), req.ToDomain())
 	if err != nil {
 		http.Error(w, "failed to create user", http.StatusInternalServerError)
 		return
 	}
 
-	w.WriteHeader(http.StatusCreated)
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{"message": "user created",
 		"id": strconv.Itoa(id)})
 }
@@ -77,9 +70,9 @@ func (h *userHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(user)
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(ToUserResponse(user))
 }
 
 func (h *userHandler) Login(w http.ResponseWriter, r *http.Request) {
@@ -97,16 +90,34 @@ func (h *userHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"token": token})
+}
+
+func (h *userHandler) Logout(w http.ResponseWriter, r *http.Request) {
+	token := r.Header.Get("Authorization")
+	if token == "" {
+		http.Error(w, "no token provided", http.StatusUnauthorized)
+		return
+	}
+
+	err := h.Service.Logout(r.Context(), token)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to logout: %s", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"message": "user logged out"})
 }
 
 func (h *userHandler) Welcome(w http.ResponseWriter, r *http.Request) {
 	username := r.Context().Value("username").(string)
 
-	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"username": username})
 
 }
@@ -115,5 +126,19 @@ func (h *userHandler) Update(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *userHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	err = h.Service.Delete(r.Context(), id)
+	if err != nil {
+		http.Error(w, "failed to delete user", http.StatusInternalServerError)
+		return
+	}
 
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"message": "user deleted"})
 }

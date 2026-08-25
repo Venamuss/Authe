@@ -1,0 +1,64 @@
+services:
+  postgres:
+    image: postgres:18-alpine3.24
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_DATABASE}
+    container_name: postgres-authe
+    ports:
+      - 5432:5432
+    volumes:
+      - postgres:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_DATABASE}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:8.10.1-alpine
+    container_name: redis-authe
+    command: redis-server --save 60 1 --loglevel warning
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    ports:
+      - 6379:6379
+    volumes:
+      - redis:/data
+    restart: unless-stopped
+
+  migrator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      network: host
+      target: migrator
+    env_file:
+      - .env
+    depends_on:
+      - postgres
+
+  user:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: user
+      network: host
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - 8080:8080
+
+volumes:
+  postgres:
+  redis:
