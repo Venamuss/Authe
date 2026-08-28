@@ -23,8 +23,9 @@ func TestService_Get_CacheHit(t *testing.T) {
 	mockRepo := mocks.NewMockRepository(ctrl)
 	mockCache := mocks.NewMockCache(ctrl)
 	mockTokenManager := mocks.NewMockTokenManager(ctrl)
+	mockProducer := mocks.NewMockEventProducer(ctrl)
 
-	svc := user.NewService(mockRepo, mockCache, mockTokenManager)
+	svc := user.NewService(mockRepo, mockCache, mockTokenManager, mockProducer)
 
 	ctx := context.Background()
 	expectedUser := &user.User{
@@ -57,8 +58,9 @@ func TestService_Get_CacheMiss_Success(t *testing.T) {
 	mockRepo := mocks.NewMockRepository(ctrl)
 	mockCache := mocks.NewMockCache(ctrl)
 	mockTokenManager := mocks.NewMockTokenManager(ctrl)
+	mockProducer := mocks.NewMockEventProducer(ctrl)
 
-	svc := user.NewService(mockRepo, mockCache, mockTokenManager)
+	svc := user.NewService(mockRepo, mockCache, mockTokenManager, mockProducer)
 
 	ctx := context.Background()
 	expectedUser := &user.User{
@@ -98,8 +100,9 @@ func TestService_Get_UserNotFound(t *testing.T) {
 	mockRepo := mocks.NewMockRepository(ctrl)
 	mockCache := mocks.NewMockCache(ctrl)
 	mockTokenManager := mocks.NewMockTokenManager(ctrl)
+	mockProducer := mocks.NewMockEventProducer(ctrl)
 
-	svc := user.NewService(mockRepo, mockCache, mockTokenManager)
+	svc := user.NewService(mockRepo, mockCache, mockTokenManager, mockProducer)
 
 	ctx := context.Background()
 
@@ -134,8 +137,9 @@ func TestService_Create_Success(t *testing.T) {
 	mockRepo := mocks.NewMockRepository(ctrl)
 	mockCache := mocks.NewMockCache(ctrl)
 	mockTokenManager := mocks.NewMockTokenManager(ctrl)
+	mockProducer := mocks.NewMockEventProducer(ctrl)
 
-	svc := user.NewService(mockRepo, mockCache, mockTokenManager)
+	svc := user.NewService(mockRepo, mockCache, mockTokenManager, mockProducer)
 
 	ctx := context.Background()
 	newUser := &user.User{
@@ -154,10 +158,28 @@ func TestService_Create_Success(t *testing.T) {
 		Return(10, nil).
 		Times(1)
 
+	done := make(chan struct{})
+	mockProducer.EXPECT().
+		SendEvent(gomock.Any(), "10", gomock.Cond(func(event any) bool {
+			e, ok := event.(user.UserRegisteredEvent)
+			return ok && e.UserID == 10 && e.Username == "newuser" && e.Email == "newuser@example.com"
+		})).
+		DoAndReturn(func(ctx context.Context, key string, payload any) error {
+			close(done)
+			return nil
+		}).
+		Times(1)
+
 	createdID, err := svc.Create(ctx, newUser)
 
 	require.NoError(t, err)
 	assert.Equal(t, 10, createdID)
+
+	select {
+	case <-done:
+	case <-time.After(1 * time.Second):
+		t.Fatal("timed out waiting for SendEvent")
+	}
 }
 
 func TestService_Login_Success(t *testing.T) {
@@ -167,8 +189,9 @@ func TestService_Login_Success(t *testing.T) {
 	mockRepo := mocks.NewMockRepository(ctrl)
 	mockCache := mocks.NewMockCache(ctrl)
 	mockTokenManager := mocks.NewMockTokenManager(ctrl)
+	mockProducer := mocks.NewMockEventProducer(ctrl)
 
-	svc := user.NewService(mockRepo, mockCache, mockTokenManager)
+	svc := user.NewService(mockRepo, mockCache, mockTokenManager, mockProducer)
 
 	ctx := context.Background()
 	password := "correct_password"
@@ -206,8 +229,9 @@ func TestService_Login_WrongPassword(t *testing.T) {
 	mockRepo := mocks.NewMockRepository(ctrl)
 	mockCache := mocks.NewMockCache(ctrl)
 	mockTokenManager := mocks.NewMockTokenManager(ctrl)
+	mockProducer := mocks.NewMockEventProducer(ctrl)
 
-	svc := user.NewService(mockRepo, mockCache, mockTokenManager)
+	svc := user.NewService(mockRepo, mockCache, mockTokenManager, mockProducer)
 
 	ctx := context.Background()
 	hash, err := security.HashPassword("correct_password")
@@ -244,8 +268,9 @@ func TestService_Login_UserNotFound(t *testing.T) {
 	mockRepo := mocks.NewMockRepository(ctrl)
 	mockCache := mocks.NewMockCache(ctrl)
 	mockTokenManager := mocks.NewMockTokenManager(ctrl)
+	mockProducer := mocks.NewMockEventProducer(ctrl)
 
-	svc := user.NewService(mockRepo, mockCache, mockTokenManager)
+	svc := user.NewService(mockRepo, mockCache, mockTokenManager, mockProducer)
 
 	ctx := context.Background()
 
@@ -268,8 +293,9 @@ func TestService_Logout_Success(t *testing.T) {
 	mockRepo := mocks.NewMockRepository(ctrl)
 	mockCache := mocks.NewMockCache(ctrl)
 	mockTokenManager := mocks.NewMockTokenManager(ctrl)
+	mockProducer := mocks.NewMockEventProducer(ctrl)
 
-	svc := user.NewService(mockRepo, mockCache, mockTokenManager)
+	svc := user.NewService(mockRepo, mockCache, mockTokenManager, mockProducer)
 
 	ctx := context.Background()
 	rawToken := "valid-token-string"
@@ -307,8 +333,9 @@ func TestService_Logout_InvalidToken(t *testing.T) {
 	mockRepo := mocks.NewMockRepository(ctrl)
 	mockCache := mocks.NewMockCache(ctrl)
 	mockTokenManager := mocks.NewMockTokenManager(ctrl)
+	mockProducer := mocks.NewMockEventProducer(ctrl)
 
-	svc := user.NewService(mockRepo, mockCache, mockTokenManager)
+	svc := user.NewService(mockRepo, mockCache, mockTokenManager, mockProducer)
 
 	ctx := context.Background()
 	rawToken := "invalid-token"
@@ -335,8 +362,9 @@ func TestService_Update_Success(t *testing.T) {
 	mockRepo := mocks.NewMockRepository(ctrl)
 	mockCache := mocks.NewMockCache(ctrl)
 	mockTokenManager := mocks.NewMockTokenManager(ctrl)
+	mockProducer := mocks.NewMockEventProducer(ctrl)
 
-	svc := user.NewService(mockRepo, mockCache, mockTokenManager)
+	svc := user.NewService(mockRepo, mockCache, mockTokenManager, mockProducer)
 
 	ctx := context.Background()
 	updateUser := &user.User{
@@ -367,8 +395,9 @@ func TestService_Delete_Success(t *testing.T) {
 	mockRepo := mocks.NewMockRepository(ctrl)
 	mockCache := mocks.NewMockCache(ctrl)
 	mockTokenManager := mocks.NewMockTokenManager(ctrl)
+	mockProducer := mocks.NewMockEventProducer(ctrl)
 
-	svc := user.NewService(mockRepo, mockCache, mockTokenManager)
+	svc := user.NewService(mockRepo, mockCache, mockTokenManager, mockProducer)
 
 	ctx := context.Background()
 
@@ -393,8 +422,9 @@ func TestService_IsExistByUsername(t *testing.T) {
 	mockRepo := mocks.NewMockRepository(ctrl)
 	mockCache := mocks.NewMockCache(ctrl)
 	mockTokenManager := mocks.NewMockTokenManager(ctrl)
+	mockProducer := mocks.NewMockEventProducer(ctrl)
 
-	svc := user.NewService(mockRepo, mockCache, mockTokenManager)
+	svc := user.NewService(mockRepo, mockCache, mockTokenManager, mockProducer)
 
 	ctx := context.Background()
 

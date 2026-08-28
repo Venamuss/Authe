@@ -35,17 +35,23 @@ type TokenManager interface {
 	ExtractClaimsWithMap(tokenString string) (jwt.MapClaims, error)
 }
 
+type EventProducer interface {
+	SendEvent(ctx context.Context, key string, payload any) error
+}
+
 type service struct {
 	repo         Repository
 	cache        Cache
 	tokenManager TokenManager
+	producer     EventProducer
 }
 
-func NewService(repository Repository, cache Cache, tokenManager TokenManager) *service {
+func NewService(repository Repository, cache Cache, tokenManager TokenManager, producer EventProducer) *service {
 	return &service{
 		repo:         repository,
 		cache:        cache,
 		tokenManager: tokenManager,
+		producer:     producer,
 	}
 }
 
@@ -56,7 +62,28 @@ func (s *service) Create(ctx context.Context, user *User) (int, error) {
 	}
 	user.PasswordHash = passwordHash
 
-	return s.repo.Create(ctx, user)
+	id, err := s.repo.Create(ctx, user)
+	if err != nil {
+		return 0, fmt.Errorf("failed to create user: %w", err)
+	}
+
+	event := UserRegisteredEvent{
+		UserID:    id,
+		Username:  user.Username,
+		Email:     user.Email,
+		CreatedAt: time.Now(),
+	}
+
+	go func() {
+		bgCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		if err := s.producer.SendEvent(bgCtx, fmt.Sprintf("%d", id), event); err != nil {
+			slog.Error("failed to send event", "err", err, "id", id)
+		}
+	}()
+
+	return id, nil
 }
 
 func (s *service) Get(ctx context.Context, id int) (*User, error) {

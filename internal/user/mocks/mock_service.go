@@ -279,3 +279,41 @@ func (mr *MockTokenManagerMockRecorder) VerifyToken(tokenString any) *gomock.Cal
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "VerifyToken", reflect.TypeOf((*MockTokenManager)(nil).VerifyToken), tokenString)
 }
+
+// MockEventProducer is a mock of EventProducer interface.
+type MockEventProducer struct {
+	ctrl     *gomock.Controller
+	recorder *MockEventProducerMockRecorder
+	isgomock struct{}
+}
+
+// MockEventProducerMockRecorder is the mock recorder for MockEventProducer.
+type MockEventProducerMockRecorder struct {
+	mock *MockEventProducer
+}
+
+// NewMockEventProducer creates a new mock instance.
+func NewMockEventProducer(ctrl *gomock.Controller) *MockEventProducer {
+	mock := &MockEventProducer{ctrl: ctrl}
+	mock.recorder = &MockEventProducerMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockEventProducer) EXPECT() *MockEventProducerMockRecorder {
+	return m.recorder
+}
+
+// SendEvent mocks base method.
+func (m *MockEventProducer) SendEvent(ctx context.Context, key string, payload any) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SendEvent", ctx, key, payload)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SendEvent indicates an expected call of SendEvent.
+func (mr *MockEventProducerMockRecorder) SendEvent(ctx, key, payload any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SendEvent", reflect.TypeOf((*MockEventProducer)(nil).SendEvent), ctx, key, payload)
+}

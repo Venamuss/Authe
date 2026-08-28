@@ -10,12 +10,14 @@ import (
 )
 
 type Config struct {
-	Env      string      `env:"ENV" env-default:"development"`
-	HTTP     HTTPConfig  `env-prefix:"HTTP_"`
-	GRPC     GRPCConfig  `env-prefix:"GRPC_"`
-	DB       DBConfig    `env-prefix:"DB_"`
-	Redis    RedisConfig `env-prefix:"REDIS_"`
-	Security SecurityConfig
+	Env       string          `env:"ENV" env-default:"development"`
+	HTTP      HTTPConfig      `env-prefix:"HTTP_"`
+	GRPC      GRPCConfig      `env-prefix:"GRPC_"`
+	DB        DBConfig        `env-prefix:"DB_"`
+	Redis     RedisConfig     `env-prefix:"REDIS_"`
+	Kafka     KafkaConfig     `env-prefix:"KAFKA_"`
+	Telemetry TelemetryConfig `env-prefix:"TELEMETRY_"`
+	Security  SecurityConfig
 }
 type HTTPConfig struct {
 	Port         string        `env:"PORT" env-default:"8080"`
@@ -38,7 +40,15 @@ type SecurityConfig struct {
 	RateLimit int           `env:"RATE_LIMIT" env-default:"5"`
 }
 type GRPCConfig struct {
-	Port string `env:"PORT" env-default:":50051"`
+	Port string `env:"USER_PORT" env-default:"50051"`
+	Addr string `env:"USER_ADDR" env-default:"127.0.0.1"`
+}
+type KafkaConfig struct {
+	Brokers []string `env:"BROKERS" env-default:"localhost:9092"`
+	Topic   string   `env:"TOPIC"   env-default:"user-events"`
+}
+type TelemetryConfig struct {
+	JaegerURL string `env:"JAEGER_URL" env-default:"localhost:4317"`
 }
 
 func MustLoad() *Config {

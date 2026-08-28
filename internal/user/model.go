@@ -16,6 +16,13 @@ type User struct {
 	DeletedAt    *time.Time `json:"deleted_at,omitempty"`
 }
 
+type UserRegisteredEvent struct {
+	UserID    int       `json:"user_id"`
+	Username  string    `json:"username"`
+	Email     string    `json:"email"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 var (
 	UserNotFound     = errors.New("user not found")
 	TokenNotFound    = errors.New("token not found")

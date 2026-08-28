@@ -14,13 +14,17 @@ import (
 	"time"
 
 	"github.com/go-playground/validator/v10"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 
 	"authe/internal/config"
 	packCache "authe/internal/platform/cache"
 	"authe/internal/platform/database"
+	packKafka "authe/internal/platform/kafka"
 	"authe/internal/platform/security"
+	"authe/internal/platform/telemetry"
 	user "authe/internal/user"
 	grpcUserHandler "authe/internal/user/handler/grpc"
 	httpUserHandler "authe/internal/user/handler/http"
@@ -29,6 +33,18 @@ import (
 
 func main() {
 	cfg := config.MustLoad()
+
+	tp, err := telemetry.InitTracer(context.Background(), "user-service", cfg.Telemetry.JaegerURL)
+	if err != nil {
+		slog.Error("failed to init tracer", "err", err)
+		return
+	}
+
+	defer func() {
+		if err := tp.Shutdown(context.Background()); err != nil {
+			slog.Error("failed to shutdown tracer", "err", err)
+		}
+	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -52,11 +68,14 @@ func main() {
 	}
 	defer redisCache.Close()
 
+	producer := packKafka.NewProducer(cfg.Kafka.Brokers, cfg.Kafka.Topic)
+	defer producer.Close()
+
 	tokenManager := security.NewTokenManager(cfg.Security.JWTSecret, cfg.Security.TokenTTL)
 
 	repository := user.NewRepository(db)
 	cache := user.NewCache(redisCache)
-	service := user.NewService(repository, cache, tokenManager)
+	service := user.NewService(repository, cache, tokenManager, producer)
 
 	validate := validator.New()
 	handler := httpUserHandler.NewHandler(service, validate)
@@ -72,7 +91,7 @@ func main() {
 
 	httpServer := &http.Server{
 		Addr:         addr,
-		Handler:      mux,
+		Handler:      otelhttp.NewHandler(mux, "user-service"),
 		ReadTimeout:  cfg.HTTP.ReadTimeout,
 		WriteTimeout: cfg.HTTP.WriteTimeout,
 		IdleTimeout:  cfg.HTTP.IdleTimeout,
@@ -85,10 +104,13 @@ func main() {
 	listener, err := net.Listen("tcp", grpcPort)
 	if err != nil {
 		slog.Error("failed to listen", "err", err)
+		return
 	}
 
-	grpcServer := grpc.NewServer()
-	userV1.RegisterUserServiceServer(grpcServer, grpcUserHandler.NewServer(service, tokenManager))
+	grpcServer := grpc.NewServer(
+		grpc.StatsHandler(otelgrpc.NewServerHandler()),
+	)
+	userV1.RegisterUserServiceServer(grpcServer, grpcUserHandler.NewServer(service, tokenManager, cache))
 
 	reflection.Register(grpcServer)
 
